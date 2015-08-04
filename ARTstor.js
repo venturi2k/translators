@@ -10,31 +10,8 @@
     "inRepository": true,
     "translatorType": 4,
     "browserSupport": "gcs",
-    "lastUpdated": "2015-07-01 18:45:45"
+    "lastUpdated": "2015-07-07 14:45:45"
 }
-
-/*
-    This translator works for Artstor library sites (http://library.artstor.org) and
-    Artstor Shared Shelf Commons (http://www.sscommons.org)
-    ***** BEGIN LICENSE BLOCK *****
-    
-    Artstor Translator, Copyright © 2015 John Justin, Charles Zeng
-    
-    Zotero is free software: you can redistribute it and/or modify
-    it under the terms of the GNU Affero General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
-    
-    Zotero is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU Affero General Public License for more details.
-    
-    You should have received a copy of the GNU Affero General Public License
-    along with Zotero.  If not, see <http://www.gnu.org/licenses/>.
-    
-    ***** END LICENSE BLOCK *****
-*/
 
 /**
     detectWeb is run to determine whether item metadata can indeed be retrieved from the webpage. 
@@ -42,7 +19,7 @@
     see the overview of Zotero item types), or, if multiple items are found, “multiple”. 
 **/
 function detectWeb(doc, url) {
-    if (url.match(/\/iv2/)) {
+    if (url.match(/\/iv2\.|ExternalIV.jsp/)) {
         // Image viewer window
         return "artwork";
     } else if (url.match(/\#3\|/)) {
@@ -59,10 +36,8 @@ function detectWeb(doc, url) {
         } else if ((doc.getElementById("ssContentWrap") != null) && (doc.getElementById("ssContentWrap").style.display == "inline")) {
             // Don't capture data if slide show window is present
             return false;
-        } else {
-            if (url.match(/zMode/)) {
-                return "artwork";
-            }
+        } else if (url.match(/zMode/)) {
+            return "artwork";
         }
         // Allow thumbnail window.
         return "multiple";
@@ -76,56 +51,41 @@ function detectWeb(doc, url) {
     - Detect the page context:
         - check if the page is main window (ignore)
         - check if the page is collection splash (ignore)
+        - check if the page is a viewer
+            - get the image id and type, process it.
         - check if the page is thumbnail page
             - ignore small window
             - if small windows is popped up, process only small window
                 get the object ids from small windows, then process the ids.
             - if no small window, get the selected object and process them
                 get the object ids from selected objects, then process the ids.
-            - otherwise, select all objects in the thumbnails
-                get the object ids from the thumbnail windows, then process the ids.
-        - check if the page is image viewer
-            - get the object from the image viewer, then process the id.
+            - otherwise, select all objects in the thumbnails and prompt user
+                get the object ids from users, then process the ids.
     - Process the id
         - find the object type.
-        - get the metadta service url from id using service call  http://library.artstor.org/library/secure/metadata/id
+        - get the metadta service url from id using service call  [domain]/[approot]/secure/metadata/id
             - fetch and convert the metadata from the metadata service call
                 - take into consideration of different metadata field for the portals
                 - may need to convert/format the data values.
             - fetch the item notes using: 
-        - get the resource link url from id: :http://library.artstor.org/library/secure/metadata/id?_method=FpHtml
+        - get the resource link url from id: :[domain]/[approot]/secure/metadata/id?_method=FpHtml
             - fetch the resource from resource url
             - set the item title and item mine type.
 
     doWeb is run when a user, wishing to save one or more items, activates the selected translator. 
     Sidestepping the retrieval of item metadata, we'll first focus on how doWeb can be used to save 
-    retrieved item metadata (as well as attachments and notes) to your Zotero library.**/
+    retrieved item metadata (as well as attachments and notes) to your Zotero library.
+**/
 function doWeb(doc, url) {
-    if (url.match(/\/iv2/)) {
+    if (url.match(/\/iv2\.|ExternalIV.jsp/)) {
         doImageViewer(doc, url);
     }
-    if (url.match(/#3\|/)) {
+    if (url.match(/\#3\|/)) {
         // Thumbnail window page
         if ((doc.getElementsByClassName('MetaDataWidgetRoot') != null) && (doc.getElementsByClassName('MetaDataWidgetRoot').length > 0)) {
             doMetadataWindow(doc, url);
         } else {
-            var skipThumbnail = false;
-            if ((doc.getElementById("floatingPlaceHolder") != null) && (doc.getElementById("floatingPlaceHolder").style.display == "block")) {
-                // Don't capture date if small window is present
-                skipThumbnail = true;
-            }
-            if ((doc.getElementById("thumbNavSave1") != null) && (doc.getElementById("thumbNavSave1").style.display == "block")) {
-                // Don't capture data if image group window is in editing state.
-                skipThumbnail = true;
-            }
-            if ((doc.getElementById("ssContentWrap") != null) && (doc.getElementById("ssContentWrap").style.display == "inline")) {
-                // Don't capture data if slide show window is present
-                skipThumbnail = true;
-            }
-            // Allow thumbnail window.
-            if (!skipThumbnail) {
-                doThumbnails(doc, url);
-            }
+            doThumbnails(doc, url);
         }
     }
 }
@@ -136,7 +96,7 @@ function doImageViewer(doc, url) {
     var objID = doc.getElementById("objID");
     if (objID != null) {
         var objItems = [];
-        var objItem = doc.getElementById("objID").title;
+        var objItem = objID.title;
         objItems.push(objItem);
         processObjects(doc, url, objItems);
     }
@@ -147,11 +107,29 @@ function doMetadataWindow(doc, url) {
     var metaWindows = doc.getElementsByClassName('MetaDataWidgetRoot');
     var objItems = [];
     for (var i = 0; i < metaWindows.length; i++) {
+        // the dom id is mdwSS7730455_7730455_8806769 that is object id
+        // prefixed with mdw.
         var id = metaWindows[i].id.substring(3);
         objItems.push(id);
     }
 
     processSelectedObject(doc, url, objItems, 1);
+}
+
+function htmlDecode(doc, input){
+    var fieldValue = input.replace(/<wbr\/>/g, "");
+    fieldValue = fieldValue.replace(/<br\/>/g, "");
+ 
+    var decodedValue;
+    if (fieldValue.match(/&(?:[a-z\d]+|#\d+|#x[a-f\d]+);/i)) {
+        var e = doc.createElement('div');
+        e.innerHTML = fieldValue;
+         decodedValue = e.childNodes.length === 0 ? "" : e.childNodes[0].nodeValue;
+    }
+    else {
+        decodedValue = fieldValue;
+    }
+    return decodedValue;
 }
 
 function processSelectedObject(doc, url, selectedObjs, selectionType) {
@@ -183,13 +161,14 @@ function processSelectedObject(doc, url, selectedObjs, selectionType) {
                         var idx = selectedObjs[j];
                         masterObj = masterObjList[idx];
                         var key = masterObj.id + ":" + masterObj.type;
-                        candidateItems[key] = masterObj.title;
+                        // candidateItems[key] = masterObj.title;
+                        candidateItems[key] = htmlDecode(doc, masterObj.title);
                     }
                 } else {
                     for (var j = 0; j < masterObjList.length; j++) {
                         masterObj = masterObjList[j];
                         var key = masterObj.id + ":" + masterObj.type;
-                        candidateItems[key] = masterObj.title;
+                        candidateItems[key] = htmlDecode(doc, masterObj.title);
                     }
                 }
                 if (zMode && Object.keys(candidateItems).length > 0) {
@@ -258,7 +237,6 @@ function getMasterThumbnailList(doc, url, objDescItems) {
             objDescItems.push(objDescItem);
         }
     });
-    return objDescItems;
 }
 
 /**
@@ -274,10 +252,19 @@ function getSelectedItems(doc, url) {
     if (wrap != null) {
         var imageElems = wrap.getElementsByClassName("thumbNailImageSelected");
         for (var i = 0; i < imageElems.length; i++) {
-            if (imageElems[i].parentNode.parentNode.style.display == "block") {
-                var id = imageElems[i].id; // we need to get the index (1) from id string "custom1_imageHolder"
-                var imageNum = id.substring(id.indexOf("m") + 1, id.indexOf("_"));
-                indexes.push(parseInt(imageNum));
+            var ele = imageElems[i];
+            var divId = ele.id;
+            var visible = false;
+            if (divId.indexOf('large') >= 0) {
+               visible = ele.parentNode.parentNode.parentNode.style.display == "block";
+            } 
+            else {
+                visible = ele.parentNode.parentNode.style.display == "block";
+            }
+            if (visible) {
+                // we need to get the index (1) from id string "custom1_imageHolder"
+                var imageNum = divId.substring(divId.indexOf("m") + 1, divId.indexOf("_"));
+                indexes.push(parseInt(imageNum) - 1);
             }
         }
     }
@@ -297,11 +284,11 @@ function processObjects(doc, url, objIds) {
             document: doc
         });
 
-        getMetaDataItem(url, objItem, dataItem);
+        getMetaDataItem(doc, url, objItem, dataItem);
     }
 }
 
-function getMetaDataItem(url, objItem, dataItem) {
+function getMetaDataItem(doc, url, objItem, dataItem) {
     var portalMap = {
         'flexspace': {
             'Campus': 'title',
@@ -318,7 +305,8 @@ function getMetaDataItem(url, objItem, dataItem) {
             'Rights': 'rights',
             'Site Date': 'date',
             'Artifact Materials/Techniques': 'artworkMedium',
-            'Artifact Dimensions': 'artworkSize'
+            'Artifact Dimensions': 'artworkSize',
+            'Rights': 'rights'
         },
         'default': {
             'Creator': 'creators',
@@ -341,21 +329,19 @@ function getMetaDataItem(url, objItem, dataItem) {
         if (!(portal in portalMap)) {
             portal = 'default';
         }
-        processPortalData(dataItem, json, portalMap[portal], portal);
+        processPortalData(doc, dataItem, json, portalMap[portal], portal);
         getNotesDataItem(url, objItem, dataItem);
     });
-
-    return dataItem;
 }
 
-function processPortalData(dataItem, json, fieldMap, portal) {
+function processPortalData(doc, dataItem, json, fieldMap, portal) {
     var fieldName;
     var fieldValue;
     if (portal == 'archaeology') {
         var hasSiteName = false;
         for (var i = 0; i < json.metaData.length; i++) {
             fieldName = json.metaData[i].fieldName;
-            fieldValue = json.metaData[i].fieldValue;
+            fieldValue = htmlDecode(doc, json.metaData[i].fieldValue);
             if (fieldName in fieldMap) {
                 var key = fieldMap[fieldName];
                 if (fieldName == 'Site Name') {
@@ -363,20 +349,24 @@ function processPortalData(dataItem, json, fieldMap, portal) {
                     setItemValue(dataItem, "title", fieldValue);
                 } else if (fieldName == 'Artifact Title') {
                     if (hasSiteName) {
-                        setItemLabelValue(dataItem, "extra", fieldName, dataItem.title);
+                        setItemLabelValue(doc, dataItem, "extra", fieldName, dataItem.title);
                         hasSiteName = false;
                     }
                     setItemValue(dataItem, "title", fieldValue);
                 }
+                else {
+                    setItemValue(dataItem, key, fieldValue);
+                }
             } else {
-                setItemLabelValue(dataItem, "extra", fieldName, fieldValue);
+                setItemLabelValue(doc, dataItem, "extra", fieldName, fieldValue);
             }
         }
 
     } else {
         for (var i = 0; i < json.metaData.length; i++) {
             fieldName = json.metaData[i].fieldName;
-            fieldValue = json.metaData[i].fieldValue;
+            fieldValue = htmlDecode(doc, json.metaData[i].fieldValue);
+            // fieldValue = json.metaData[i].fieldValue;
             if (fieldName in fieldMap) {
                 var key = fieldMap[fieldName];
                 if (key == 'creators') {
@@ -385,7 +375,7 @@ function processPortalData(dataItem, json, fieldMap, portal) {
                     setItemValue(dataItem, key, fieldValue);
                 }
             } else {
-                setItemLabelValue(dataItem, "extra", fieldName, fieldValue);
+                setItemLabelValue(doc, dataItem, "extra", fieldName, fieldValue);
             }
         }
     }
@@ -395,9 +385,8 @@ function processPortalData(dataItem, json, fieldMap, portal) {
 }
 
 function setItemCreator(dataItem, fieldValue) {
-    fieldValue = fieldValue.replace(/<wbr\/>/g, "");
     var names = [];
-    if (fieldValue.indexOf(';')) {
+    if (fieldValue.indexOf(';') > 0) {
         names = fieldValue.split(';')
     } else {
         names.push(fieldValue);
@@ -406,21 +395,20 @@ function setItemCreator(dataItem, fieldValue) {
         var str = names[i];
         var contributor = "author";
         var name = str;
-
-        if (str.indexOf(':') > 0) {
-            var params = str.split(':');
-            contributor = params[0];
-            name = params[1];
-        }
-        dataItem.creators.push(ZU.cleanAuthor(name.replace(/<\/?[^>]+(>|$)/g, " ").replace(/(&gt;)|(&lt;)/g, ""), contributor, false));
+        var value = name.replace(/<\/?[^>]+(>|$)/g, " ").replace(/(&gt;)|(&lt;)/g, "");
+        dataItem.creators.push(ZU.cleanAuthor(value, contributor, false));
     }
 }
 
-function setItemLabelValue(dataItem, key, label, value) {
-    var cleanValue = value.replace(/<\/?[^>]+(>|$)/g, " ");
-    cleanValue = cleanValue.replace(/\./, "");
-    cleanValue = cleanValue.replace(/<wbr\/>/g, "");
-
+function cleanStringValue(str) {
+    var cleanValue = str.replace(/\<wbr\/>/g, "");
+    cleanValue = cleanValue.replace(/<\/?[^>]+(>|$)/g, " ");
+    return cleanValue;
+}
+ 
+function setItemLabelValue(doc, dataItem, key, label, value) {
+    var cleanValue = cleanStringValue(value);
+ 
     if (!(key in dataItem)) {
         dataItem[key] = label + ": " + cleanValue;
 
@@ -436,9 +424,7 @@ function setItemLabelValue(dataItem, key, label, value) {
 }
 
 function setItemValue(dataItem, key, value, override) {
-    var cleanValue = value.replace(/<\/?[^>]+(>|$)/g, " ");
-    cleanValue = cleanValue.replace(/\./, "");
-    cleanValue = cleanValue.replace(/<wbr\/>/g, "");
+    var cleanValue = cleanStringValue(value);
 
     if (!(key in dataItem) || override) {
         dataItem[key] = cleanValue;
@@ -476,7 +462,6 @@ function getNotesDataItem(url, objItem, dataItem) {
 
 }
 
-
 function getResourceDataItem(url, objItem, dataItem) {
     var itemAry = objItem.split(':');
     var serviceURL = getServiceUrlRoot(url) + "metadata/" + itemAry[0] + "/" + "?_method=FpHtml";
@@ -484,70 +469,53 @@ function getResourceDataItem(url, objItem, dataItem) {
     Zotero.Utilities.HTTP.doGet(serviceURL, function(text) {
         var service = text.substring(text.indexOf("secure"));
         service = service.substring(0, service.indexOf("</td>")).replace(/<wbr\/>/g, "").substring(service.indexOf("?")).trim();
-        dataItem.url = getServerUrl(url) + "secure/ViewImages" + service + "&zoomparams=&fs=true";
-        getNonImageDataItem(url, objItem, dataItem);
+        dataItem.url = getServerUrl(url) + "/secure/ViewImages" + service + "&zoomparams=&fs=true";
+        dataItem.complete();
     });
 }
 
-function getNonImageDataItem(url, objItem, dataItem) {
-    var ARTSTOR_MEDIA_MAPPINGS = {
-        "11": ["7", "Artstor QuickTime Movie Attachment", "video/quicktime"], //qtvr
-        "12": ["10", "Artstor Audio File Attachment", "audio/mpeg3"], // audio
-        "20": ["20", "Artstor PDF Attachment", "application/pdf"], // pdf
-        "21": ["21", "Artstor PowerPoint Attachment", "application/powerpoint"], // powerpoint
-        "22": ["22", "Artstor Word Attachment", "application/msword"], // word
-        "23": ["23", "Artstor Excel Attachment", "application/excel"], // excel
-        "24": ["24", "Artstor Video File Attachment", "text/html"], // video
-    };
-
-    var itemAry = objItem.split(':');
-    var objType = itemAry[1];
-    var mediaInfo = ARTSTOR_MEDIA_MAPPINGS[objType];
-    if (mediaInfo !== undefined) {
-        var serviceURL = getServiceUrlRoot(url) + "imagefpx/" + itemAry[0] + "/" + mediaInfo[0];
-
-        Zotero.Utilities.HTTP.doGet(serviceURL, function(text) {
-
-            var json = JSON.parse(text);
-            var imageUrl = json.imageUrl;
-            var mediaUrl;
-            if (imageUrl.indexOf('http') >= 0) {
-                mediaUrl = json.imageUrl;
-            } else {
-                if (imageUrl.indexOf('/') == 0) {
-                    mediaUrl = getFileRoot(url) + "/thumb" + imageUrl;
-                } else {
-                    mediaUrl = getFileRoot(url) + "/thumb/" + imageUrl;
-                }
-            }
-            dataItem.attachments.push({
-                title: mediaInfo[1],
-                url: mediaUrl,
-                mimeType: mediaInfo[2]
-            });
-            dataItem.url = url;
-            dataItem.complete();
-        });
-    } else {
-        dataItem.complete();
-    }
-    Zotero.done();
-}
-
 function getPortal(url) {
-    var portal = url.substring(7, url.indexOf("."));
+    var portal = url.substring(url.indexOf('://') + 3, url.indexOf('.'));
     return portal;
 }
 
 function getServerUrl(url) {
     var serverUrl;
-    if (url.indexOf('/iv2') > 0) {
+    if (url.indexOf('/iv2\.') > 0) {
         serverUrl = url.substring(0, url.indexOf('iv2\.'));
-    } else {
+    } else if (url.indexOf('/ExternalIV.jsp') > 0) {
+       serverUrl = url.substring(0, url.indexOf('ExternalIV.jsp'));
+    }
+    else {
         serverUrl = url.substring(0, url.indexOf('#3'));
     }
     serverUrl = serverUrl.substring(0, serverUrl.lastIndexOf('/'));
     return serverUrl;
+}
+
+function getSortOrder(doc) {
+    var sortOrder = 0; 
+    var sortUL = doc.getElementById("sub0sortList");
+    if (sortUL !== null) {
+        var sortElemWChk = sortUL.getElementsByClassName('sortListItemNav');
+        if (sortElemWChk.length > 0) {
+            switch (sortElemWChk[0].id) {
+                case "thumbSortRelevance0":
+                    sortOrder = 0;
+                    break;
+                case "thumbSortTitle0":
+                    sortOrder = 1;
+                    break;
+                case "thumbSortCreator0":
+                    sortOrder = 2;
+                    break;
+                case "thumbSortDate0":
+                    sortOrder = 3;
+                    break;
+            }
+        }
+    }
+    return sortOrder;
 }
 
 function getThumbnailServiceURL(doc, url) {
@@ -573,33 +541,14 @@ function getThumbnailServiceURL(doc, url) {
     // get page size
     var imagesPerPage = "1";
     var pageDOM = doc.getElementById("thumbNavImageButt");
-    if (pageDOM != null)
+    if (pageDOM != null) {
         imagesPerPage = pageDOM.innerHTML;
+    }
     var pageSize = parseInt(imagesPerPage);
     var startIdx = (pageNo - 1) * pageSize + 1;
 
     // get sort order
-    var sortOrder = 0; //scrape from page
-    var sortUL = doc.getElementById("sub0sortList");
-    if (sortUL !== null) {
-        var sortElemWChk = sortUL.getElementsByClassName('sortListItemNav');
-        if ((sortElemWChk != null) && (sortElemWChk.length > 0)) {
-            switch (sortElemWChk[0].id) {
-                case "thumbSortRelevance0":
-                    sortOrder = 0;
-                    break;
-                case "thumbSortTitle0":
-                    sortOrder = 1;
-                    break;
-                case "thumbSortCreator0":
-                    sortOrder = 2;
-                    break;
-                case "thumbSortDate0":
-                    sortOrder = 3;
-                    break;
-            }
-        }
-    }
+    var sortOrder = getSortOrder(doc);
 
     var serviceURL = "";
     switch (pageType) {
@@ -607,7 +556,7 @@ function getThumbnailServiceURL(doc, url) {
             var searchTerm = decodeSearchData(decrypt(params[7]));
 
             var kw = searchTerm.kw;
-            kw = encrypt(kw);
+            kw = encodeURIComponent(kw);
             var type = searchTerm.type;
 
             var origKW = searchTerm.origKW;
@@ -681,8 +630,7 @@ function getFileRoot(url) {
          }
 **/
 function decodeSearchData(str) {
-    var searchParam = str.replace(/(&gt;)/g, ":");
-    var param = searchParam.split('&');
+    var param = str.split('&');
     var searchData = new Object();
     var sparam;
     var id;
@@ -701,188 +649,54 @@ function decodeSearchData(str) {
     return searchData;
 }
 
-var decodeMap = {
-    '20': ' ',
-    '21': '!',
-    '22': '"',
-    '23': '#',
-    '24': '$',
-    '25': '%',
-    '26': '&',
-    '27': "'",
-    '28': '(',
-    '29': ')',
-    '2A': '*',
-    '2B': '+',
-    '2C': ',',
-    '2D': '-',
-    '2E': '.',
-    '2F': '/',
-    '30': '0',
-    '31': '1',
-    '32': '2',
-    '33': '3',
-    '34': '4',
-    '35': '5',
-    '36': '6',
-    '37': '7',
-    '38': '8',
-    '39': '9',
-    '3A': ':',
-    '3B': ';',
-    '3C': '<',
-    '3D': '=',
-    '3E': '>',
-    '3F': '?',
-    '5B': '[',
-    //              '5C' : '\\',
-    '5D': ']',
-    '5E': '^',
-    '5F': '_',
-    '60': '`',
-    '7B': '{',
-    '7C': '|',
-    '7D': '}',
-    '7E': '~'
-};
-
-encodeMap = {
-    ' ': '20',
-    '!': '21',
-    '"': '22',
-    '#': '23',
-    '$': '24',
-    '%': '25',
-    '&': '26',
-    "'": '27',
-    '(': '28',
-    ')': '29',
-    '*': '2A',
-    '+': '2B',
-    ',': '2C',
-    '-': '2D',
-    '.': '2E',
-    '/': '2F',
-    '0': '30',
-    '1': '31',
-    '2': '32',
-    '3': '33',
-    '4': '34',
-    '5': '35',
-    '6': '36',
-    '7': '37',
-    '8': '38',
-    '9': '39',
-    ':': '3A',
-    ';': '3B',
-    '<': '3C',
-    '=': '3D',
-    '>': '3E',
-    '?': '3F',
-    '[': '5B',
-    // '\\' : '5C',
-    ']': '5D',
-    '^': '5E',
-    '_': '5F',
-    '`': '60',
-    '{': '7B',
-    '|': '7C',
-    '}': '7D',
-    '~': '7E'
-};
-
 /**
     Converts two character number character to special character
+    it converts 
+        type3D3626kw3Dairstream20trailer26geoIds3D
+    to
+        type=6&kw=airstream trailer&geoIds=
 **/
 function decrypt(s) {
-    var len = s.length;
-    var i = 0;
-    var newS = '';
-    var key;
-    while (i < len) {
-        var ch = s.charAt(i);
-        if ((ch >= '0') && (ch <= '9')) {
-            key = s.slice(i, i + 2);
-            newS = newS + decodeMap[key];
-            i = i + 2;
-        } else {
-            if (ch == "!") {
-                var nCh = '';
-                if ((i + 1) < len) {
-                    nCh = s.charAt(i + 1);
-                }
-                if ((nCh >= '0') && (nCh <= '9')) {
-                    var rStr = s.substr(i + 1);
-                    var code = parseInt(rStr);
-                    nCh = String.fromCharCode(code);
-                    var nIdx = rStr.indexOf("!");
-                    if (nIdx > 0) {
-                        i = i + nIdx + 2;
-                        newS = newS + nCh;
-                    }
-                } else {
-                    newS = newS + ch;
-                    i++;
-                }
-            } else {
-                newS = newS + ch;
-                i++;
-            }
+    return s.replace(/!(\d{1,5})!|(\d[\dA-F])/g, function(m, unicode, hex) {
+        // Either unicode or hex are set, not both. unicode has priority over hex in the match
+        if (unicode) {
+            return String.fromCharCode(parseInt(unicode)); // Always parses because of regexp
+        } 
+
+        // must be hex
+        try {  
+            return decodeURIComponent('%' + hex) 
         }
-    }
-    return newS;
+        catch(e) { 
+            /* Some hex character escapes are invalid */ 
+        }
+
+        return m; // Fail-safe
+    });
 }
 
-/**
-    Converts speial character to two digit code.
-**/
-function encrypt(s) {
-    var newS = '';
-    if (s !== undefined) {
-        var len = s.length;
-        i = 0;
-        var ch;
-        while (i < len) {
-            ch = s.charAt(i);
-            if (((ch >= 'a') && (ch <= 'z')) ||
-                ((ch >= 'A') && (ch <= 'Z'))) {
-                newS = newS + ch;
-            } else {
-                var eCh = encodeMap[ch];
-                if (eCh === undefined) {
-                    newS = newS + "!" + ch.charCodeAt(0) + "!";
-                } else {
-                    newS = newS + "%" + eCh;
-                }
-            }
-            i++;
-        }
-    }
-    return newS;
-}
 
 /** BEGIN TEST CASES **/
 var testCases = [
     {
         "type": "artwork",
-        "url": "http://www.sscommons.org/openlibrary/welcome.html#3|collections|7730455||zModeBryn20Mawr20College20Faculty2FStaff2FStudent20Photographs||||||",
-        "defer": true,
+        "url": "http://www.sscommons.org/openlibrary/ExternalIV.jsp?objectId=4jEkdDElLjUzRkY6fz5%2BRXlDOHkje1x9fg%3D%3D&fs=true",
         "items": [
             {
                 "itemType": "artwork",
                 "title": "Trailer Home; Exterior view",
                 "creators": [
                     {
-                        "firstName": "Barbara",
+                        "firstName": "Image by: Barbara",
                         "lastName": "Lane",
-                        "creatorType": "Image by"
+                        "creatorType": "author"
                     }
                 ],
                 "date": "Photographed: 2001",
                 "extra": "Location: Bradford County, Pennsylvania; Collection: Bryn Mawr College Faculty/Staff/Student Photographs; ID Number: 01-07828; Source: Personal photographs of Professor Barbara Lane, 2001",
                 "libraryCatalog": "ARTstor",
-                "rights": "Copyright is owned by the photographer Questions can be directed to sscommons@brynmawr.edu.; This image has been  selected and made av ailable by a user us ing Artstor's softwa re tools Artstor ha s not screened or se lected this image or  cleared any rights  to it and is acting  as an online service  provider pursuant t o 17 U.S.C. §512. Ar tstor disclaims any  liability associated  with the use of thi s image. Should you  have any legal objec tion to the use of t his image, please vi sit http://www.artst or.org/our-organizat ion/o-html/copyright .shtml for contact i nformation and instr uctions on how to pr oceed.",
-                "url": "http://www.sscommons.org/openlibrarysecure/ViewImages?id=4jEkdDElLjUzRkY6fz5%2BRXlDOHkje1x9fg%3D%3D&userId=gDFB&zoomparams=&fs=true",
+                "rights": "Copyright is owned by the photographer. Questions can be directed to sscommons@brynmawr.edu.; This image has been selected and made available by a user using Artstor's software tools. Artstor has not screened or selected this image or cleared any rights to it and is acting as an online service provider pursuant to 17 U.S.C. §512. Artstor disclaims any liability associated with the use of this image. Should you have any legal objection to the use of this image, please visit http://www.artstor.org/our-organization/o-html/copyright.shtml for contact information and instructions on how to proceed.",
+                "url": "http://www.sscommons.org/openlibrary/secure/ViewImages?id=4jEkdDElLjUzRkY6fz5%2BRXlDOHkje1x9fg%3D%3D&userId=gDFB&zoomparams=&fs=true",
                 "attachments": [
                     {
                         "title": "Artstor Thumbnails"
